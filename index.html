@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>ECTHQ APT Package Repository</title>
+
+<style>
+body {
+    font-family: Arial, Helvetica, sans-serif;
+    background: #ffffff;
+    color: #222;
+    margin: 0;
+}
+
+header {
+    background: #222;
+    color: white;
+    padding: 25px;
+}
+
+header h1 {
+    margin: 0;
+    font-size: 28px;
+}
+
+header p {
+    margin-top: 8px;
+    color: #ccc;
+}
+
+.container {
+    max-width: 1100px;
+    margin: auto;
+    padding: 25px;
+}
+
+.box {
+    border: 1px solid #ccc;
+    background: #fafafa;
+    padding: 20px;
+    margin-bottom: 25px;
+}
+
+h2 {
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 8px;
+}
+
+code {
+    background: #eee;
+    padding: 3px 6px;
+    border-radius: 3px;
+}
+
+pre {
+    background: #222;
+    color: #eee;
+    padding: 15px;
+    overflow-x: auto;
+}
+
+table {
+    width:100%;
+    border-collapse:collapse;
+}
+
+th {
+    background:#333;
+    color:white;
+    padding:10px;
+    text-align:left;
+}
+
+td {
+    border-bottom:1px solid #ddd;
+    padding:10px;
+}
+
+tr:hover {
+    background:#f3f3f3;
+}
+
+.footer {
+    border-top:1px solid #ddd;
+    padding:20px;
+    text-align:center;
+    color:#777;
+}
+</style>
+
+</head>
+
+<body>
+
+<header>
+<h1>ECTHQ APT Package Repository</h1>
+<p>Official APT package repository for ECTHQ and more!</p>
+</header>
+
+
+<div class="container">
+
+
+<div class="box">
+
+<h2>Adding this repository</h2>
+
+<p>Run:</p>
+
+<pre>curl -fsSL https://ecthq.github.io/aptrepo/addrepo.sh | sudo bash</pre>
+
+<p>Then:</p>
+
+<pre>sudo apt update</pre>
+
+</div>
+
+
+
+<div class="box">
+
+<h2>Repository Information</h2>
+
+<p>
+Distribution:
+<b>stable</b>
+<br>
+
+Components:
+<b>main</b>
+<br>
+
+Architectures:
+<span id="architectures">Loading...</span>
+
+</p>
+
+</div>
+
+
+
+<div class="box">
+
+<h2>Available Packages</h2>
+
+
+<table>
+
+<thead>
+<tr>
+<th>Name</th>
+<th>Version</th>
+<th>Architecture</th>
+<th>Description</th>
+</tr>
+</thead>
+
+<tbody id="packages">
+
+<tr>
+<td colspan="4">
+Loading packages...
+</td>
+</tr>
+
+</tbody>
+
+</table>
+
+</div>
+
+
+</div>
+
+
+<div class="footer">
+ECTHQ APT Package Repository
+</div>
+
+
+
+<script>
+
+let architectures = [];
+
+function escapeHTML(value) {
+
+    return String(value || "")
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;")
+        .replaceAll('"',"&quot;")
+        .replaceAll("'","&#039;");
+}
+
+
+
+async function loadRelease() {
+
+    const response = await fetch(
+        "dists/stable/Release",
+        {cache:"no-store"}
+    );
+
+    const text = await response.text();
+
+
+    for (const line of text.split("\n")) {
+
+        if (line.startsWith("Architectures:")) {
+
+            architectures =
+                line.substring(
+                    "Architectures:".length
+                )
+                .trim()
+                .split(/\s+/);
+
+        }
+
+    }
+
+
+    document.getElementById("architectures").innerHTML =
+        architectures
+        .map(a => `<b>${escapeHTML(a)}</b>`)
+        .join(", ");
+
+}
+
+
+
+function parsePackages(text) {
+
+    const packages=[];
+
+    for (const entry of text.split("\n\n")) {
+
+        if (!entry.trim())
+            continue;
+
+
+        const pkg={};
+
+
+        for (const line of entry.split("\n")) {
+
+            const pos=line.indexOf(":");
+
+            if(pos>0) {
+
+                const key=line.substring(0,pos);
+
+                const value=line.substring(pos+1)
+                    .trim();
+
+                pkg[key]=value;
+
+            }
+
+        }
+
+
+        if(pkg.Package)
+            packages.push(pkg);
+
+    }
+
+
+    return packages;
+
+}
+
+
+
+function mergePackages(pkgs) {
+
+    const map=new Map();
+
+
+    for(const pkg of pkgs) {
+
+        const key =
+            `${pkg.Package}|${pkg.Version}`;
+
+
+        if(!map.has(key)) {
+
+            map.set(key,{
+                Package:pkg.Package,
+                Version:pkg.Version,
+                Description:pkg.Description,
+                arches:new Set()
+            });
+
+        }
+
+
+        map.get(key)
+            .arches
+            .add(pkg.Architecture);
+
+    }
+
+
+    return Array.from(map.values())
+        .map(x => ({
+            Package:x.Package,
+            Version:x.Version,
+            Architecture:
+                Array.from(x.arches)
+                .sort()
+                .join(", "),
+            Description:x.Description || ""
+        }));
+
+}
+
+
+
+async function loadPackages() {
+
+    let all=[];
+
+
+    for(const arch of architectures) {
+
+
+        const file =
+            `dists/stable/main/binary-${arch}/Packages`;
+
+
+        try {
+
+            const response =
+                await fetch(file,{
+                    cache:"no-store"
+                });
+
+
+            if(!response.ok)
+                continue;
+
+
+            all.push(
+                ...parsePackages(
+                    await response.text()
+                )
+            );
+
+
+        } catch(e) {
+
+            console.log(
+                "Failed:",
+                file
+            );
+
+        }
+
+    }
+
+
+    const merged =
+        mergePackages(all);
+
+
+    const table =
+        document.getElementById("packages");
+
+
+    table.innerHTML="";
+
+
+    if(merged.length===0) {
+
+        table.innerHTML=
+        "<tr><td colspan='4'>No packages found</td></tr>";
+
+        return;
+
+    }
+
+
+    for(const pkg of merged) {
+
+
+        table.innerHTML += `
+
+<tr>
+
+<td>${escapeHTML(pkg.Package)}</td>
+
+<td>${escapeHTML(pkg.Version)}</td>
+
+<td>${escapeHTML(pkg.Architecture)}</td>
+
+<td>${escapeHTML(pkg.Description)}</td>
+
+</tr>
+
+`;
+
+    }
+
+
+}
+
+
+
+async function start() {
+
+    await loadRelease();
+
+    await loadPackages();
+
+}
+
+
+start();
+
+
+</script>
+
+
+</body>
+</html>
